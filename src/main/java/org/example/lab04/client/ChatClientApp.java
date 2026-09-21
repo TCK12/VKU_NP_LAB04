@@ -17,9 +17,14 @@ import java.io.*;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ChatClientApp extends Application {
+
+    // Bộ nhớ đệm lưu đường dẫn tuyệt đối của các file đã gửi (Máy A dùng để đọc file)
+    public static final Map<String, String> offeredFiles = new ConcurrentHashMap<>();
 
     private ListView<String> userListView = new ListView<>();
     private VBox chatBox = new VBox(10);
@@ -27,6 +32,8 @@ public class ChatClientApp extends Application {
     private TextField txtMessage = new TextField();
     private Button btnSend = new Button("Gửi Chat");
     private Button btnSendFile = new Button("📁 Gửi File");
+    private ProgressBar downloadProgress = new ProgressBar(0);
+    private Label lblDownloadInfo = new Label("");
     private Label lblStatus = new Label("Trạng thái: Đang chờ chọn user...");
 
     private String username;
@@ -104,9 +111,108 @@ public class ChatClientApp extends Application {
             }
 
             @Override
-            public void onFileReceived(String sender, String fileName) {
-                appendMessage(sender, "📁 [Đã nhận File]: " + fileName + " (Lưu tại /downloads)", true);
+            public void onFileOfferReceived(String sender, String fileName, long fileSize) {
+                Platform.runLater(() -> {
+                    appendMessage(sender, "📁 [Có file từ " + sender + "]: " + fileName + " (" + formatSize(fileSize) + ")", true);
+                    Button btnDownload = new Button("⬇ Tải: " + fileName);
+                    btnDownload.setStyle("-fx-background-color: #4CAF50; -fx-text-fill: white;");
+
+                    btnDownload.setOnAction(e -> {
+                        // FIX LỖI: Tự động tìm IP và Port thực sự của người gửi từ danh sách online
+                        String actualIP = null;
+                        int actualPort = 0;
+                        for (String user : userListView.getItems()) {
+                            if (user.startsWith(sender + " - ")) {
+                                String[] parts = user.split(" - ")[1].split(":");
+                                actualIP = parts[0];
+                                actualPort = Integer.parseInt(parts[1]);
+                                break;
+                            }
+                        }
+
+                        // Nếu không tìm thấy (người gửi đã thoát), báo lỗi
+                        if (actualIP == null) {
+                            showAlert("Lỗi", "Người gửi " + sender + " hiện không online, không thể tải file!");
+                            return;
+                        }
+
+                        final String finalIP = actualIP;
+                        final int finalPort = actualPort;
+
+                        new Thread(() -> {
+                            try (Socket s = new Socket(finalIP, finalPort); // Dùng IP/Port chuẩn của người gửi
+                                 DataOutputStream dos = new DataOutputStream(s.getOutputStream());
+                                 DataInputStream dis = new DataInputStream(s.getInputStream())) {
+
+                                dos.writeUTF("DOWNLOAD_REQ");
+                                dos.writeUTF(fileName);
+                                dos.flush();
+
+                                String resp = dis.readUTF();
+                                if ("FILE_DATA".equals(resp)) {
+                                    String fn = dis.readUTF();
+                                    long sz = dis.readLong();
+
+                                    File dir = new File("C:\\downloads");
+                                    if (!dir.exists()) dir.mkdirs();
+                                    File saveFile = new File(dir, fn);
+
+                                    byte[] buffer = new byte[4096];
+                                    long total = 0;
+                                    long start = System.currentTimeMillis();
+
+                                    try (FileOutputStream fos = new FileOutputStream(saveFile)) {
+                                        int r;
+                                        while (total < sz && (r = dis.read(buffer, 0, (int)Math.min(buffer.length, sz - total))) > 0) {
+                                            fos.write(buffer, 0, r);
+                                            total += r;
+                                            long now = System.currentTimeMillis();
+                                            long ele = now - start;
+                                            if (ele > 0) {
+                                                double speed = (total / 1024.0) / (ele / 1000.0);
+                                                int eta = (int)(((sz - total)/1024.0)/Math.max(speed, 0.1));
+                                                final double finalSpd = speed;
+                                                final int finalEta = eta;
+                                                final long finalTot = total;
+                                                final String finalFn = fn;
+
+                                                Platform.runLater(() -> {
+                                                    downloadProgress.setProgress(Math.min((double)finalTot/sz, 1.0));
+                                                    lblDownloadInfo.setText(String.format("Tốc độ: %.1f KB/s | Còn: %ds | %s", finalSpd, finalEta, finalFn));
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Platform.runLater(() -> {
+                                        downloadProgress.setProgress(1.0);
+                                        lblDownloadInfo.setText("✅ Đã tải xong: " + fn);
+                                        appendMessage("Hệ thống", "📁 Đã lưu file: " + fn + " tại " + saveFile.getAbsolutePath(), true);
+                                    });
+                                } else {
+                                    Platform.runLater(() -> showAlert("Lỗi tải file", "File gốc trên máy " + sender + " đã bị xóa hoặc di chuyển!"));
+                                }
+                            } catch (Exception ex) {
+                                Platform.runLater(() -> showAlert("Lỗi kết nối", ex.getMessage()));
+                            }
+                        }).start();
+
+                        btnDownload.setDisable(true);
+                        btnDownload.setText("Đang tải...");
+                        lblDownloadInfo.setText("Đang kết nối để tải: " + fileName);
+                        downloadProgress.setProgress(0);
+                    });
+                    HBox row = new HBox(10, new Label(sender + ": 📁 "), btnDownload, lblDownloadInfo, downloadProgress);
+                    row.setAlignment(Pos.CENTER_LEFT);
+                    chatBox.getChildren().add(row);
+                    scrollPane.setVvalue(1.0);
+                });
             }
+
+            @Override
+            public void onFileDownloadProgress(String fileName, long downloaded, long total, double speedKBps, int etaSeconds) {}
+
+            @Override
+            public void onFileSaved(String fileName, String path) {}
 
             @Override
             public void onError(String errorMessage) {
@@ -135,7 +241,7 @@ public class ChatClientApp extends Application {
 
     private void openFileChooserAndSend(Stage stage) {
         if (targetIP == null) {
-            showAlert("Cảnh báo", "Vui lòng chọn người nhận!");
+            showAlert("Cảnh báo", "Vui lòng click chọn người nhận từ danh sách bên trái trước khi gửi file!");
             return;
         }
 
@@ -143,12 +249,14 @@ public class ChatClientApp extends Application {
         File selectedFile = fileChooser.showOpenDialog(stage);
 
         if (selectedFile != null) {
+            offeredFiles.put(selectedFile.getName(), selectedFile.getAbsolutePath());
+
             new Thread(() -> {
                 try {
-                    P2PClient.sendFile(targetIP, targetP2PPort, username, selectedFile);
-                    appendMessage("Tôi", "📁 [Đã gửi File]: " + selectedFile.getName(), true);
+                    P2PClient.sendFileOffer(targetIP, targetP2PPort, username, selectedFile);
+                    appendMessage("Tôi", "📁 [Đã gửi thông báo File]: " + selectedFile.getName(), true);
                 } catch (IOException e) {
-                    Platform.runLater(() -> showAlert("Lỗi P2P", "Truyền file thất bại!"));
+                    Platform.runLater(() -> showAlert("Lỗi P2P", "Truyền thông báo file thất bại!"));
                 }
             }).start();
         }
@@ -191,9 +299,7 @@ public class ChatClientApp extends Application {
         primaryStage.setTitle("P2P Chat - " + username + " (Port: " + myP2PPort + ")");
         primaryStage.setOnCloseRequest(e -> {
             try {
-                if (centralServerSocket != null && !centralServerSocket.isClosed()) {
-                    centralServerSocket.close();
-                }
+                if (centralServerSocket != null && !centralServerSocket.isClosed()) centralServerSocket.close();
             } catch (IOException ignored) {}
             System.exit(0);
         });
@@ -203,7 +309,6 @@ public class ChatClientApp extends Application {
     private boolean showLoginDialog() {
         Dialog<ButtonType> dialog = new Dialog<>();
         dialog.setTitle("Đăng nhập Client");
-
         TextField txtName = new TextField("User" + (int)(Math.random() * 100));
         TextField txtP2PPort = new TextField("8001");
         TextField txtServerIP = new TextField("127.0.0.1");
@@ -218,7 +323,6 @@ public class ChatClientApp extends Application {
 
         dialog.getDialogPane().setContent(grid);
         dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
         Optional<ButtonType> result = dialog.showAndWait();
         if (result.isPresent() && result.get() == ButtonType.OK) {
             this.username = txtName.getText().trim();
@@ -230,12 +334,17 @@ public class ChatClientApp extends Application {
         return false;
     }
 
+    private String formatSize(long size) {
+        if (size < 1024) return size + " B";
+        if (size < 1024 * 1024) return String.format("%.1f KB", size / 1024.0);
+        return String.format("%.1f MB", size / (1024.0 * 1024));
+    }
+
     private void appendMessage(String sender, String msg, boolean isFile) {
         Platform.runLater(() -> {
             Label lbl = new Label(sender + ": " + msg);
             lbl.setWrapText(true);
             lbl.setMaxWidth(400);
-
             HBox row = new HBox(lbl);
             if (sender.equals("Tôi")) {
                 row.setAlignment(Pos.CENTER_RIGHT);
@@ -244,9 +353,7 @@ public class ChatClientApp extends Application {
                 row.setAlignment(Pos.CENTER_LEFT);
                 lbl.setStyle("-fx-background-color: #EAEAEA; -fx-padding: 8px; -fx-background-radius: 8px;");
             }
-
             if (isFile) lbl.setStyle(lbl.getStyle() + "-fx-font-weight: bold; -fx-text-fill: #0066CC;");
-
             chatBox.getChildren().add(row);
             scrollPane.setVvalue(1.0);
         });
