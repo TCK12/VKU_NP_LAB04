@@ -62,6 +62,34 @@ public class ChatClientApp extends Application {
         connectAndListenCentralServer();
     }
 
+    private boolean showLoginDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Đăng nhập Client");
+        TextField txtName = new TextField("User" + (int)(Math.random() * 100));
+        TextField txtP2PPort = new TextField("8001");
+        TextField txtServerIP = new TextField("127.0.0.1");
+        TextField txtServerPort = new TextField("9999");
+
+        GridPane grid = new GridPane();
+        grid.setHgap(10); grid.setVgap(10);
+        grid.add(new Label("Tên:"), 0, 0); grid.add(txtName, 1, 0);
+        grid.add(new Label("Port P2P:"), 0, 1); grid.add(txtP2PPort, 1, 1);
+        grid.add(new Label("Server IP:"), 0, 2); grid.add(txtServerIP, 1, 2);
+        grid.add(new Label("Server Port:"), 0, 3); grid.add(txtServerPort, 1, 3);
+
+        dialog.getDialogPane().setContent(grid);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+        Optional<ButtonType> result = dialog.showAndWait();
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            this.username = txtName.getText().trim();
+            this.myP2PPort = Integer.parseInt(txtP2PPort.getText().trim());
+            this.serverIP = txtServerIP.getText().trim();
+            this.serverPort = Integer.parseInt(txtServerPort.getText().trim());
+            return true;
+        }
+        return false;
+    }
+
     private void connectAndListenCentralServer() {
         new Thread(() -> {
             try {
@@ -337,34 +365,6 @@ public class ChatClientApp extends Application {
             System.exit(0);
         });
         primaryStage.show();
-    }
-
-    private boolean showLoginDialog() {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Đăng nhập Client");
-        TextField txtName = new TextField("User" + (int)(Math.random() * 100));
-        TextField txtP2PPort = new TextField("8001");
-        TextField txtServerIP = new TextField("127.0.0.1");
-        TextField txtServerPort = new TextField("9999");
-
-        GridPane grid = new GridPane();
-        grid.setHgap(10); grid.setVgap(10);
-        grid.add(new Label("Tên:"), 0, 0); grid.add(txtName, 1, 0);
-        grid.add(new Label("Port P2P:"), 0, 1); grid.add(txtP2PPort, 1, 1);
-        grid.add(new Label("Server IP:"), 0, 2); grid.add(txtServerIP, 1, 2);
-        grid.add(new Label("Server Port:"), 0, 3); grid.add(txtServerPort, 1, 3);
-
-        dialog.getDialogPane().setContent(grid);
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-        Optional<ButtonType> result = dialog.showAndWait();
-        if (result.isPresent() && result.get() == ButtonType.OK) {
-            this.username = txtName.getText().trim();
-            this.myP2PPort = Integer.parseInt(txtP2PPort.getText().trim());
-            this.serverIP = txtServerIP.getText().trim();
-            this.serverPort = Integer.parseInt(txtServerPort.getText().trim());
-            return true;
-        }
-        return false;
     }
 
     private String formatSize(long size) {
