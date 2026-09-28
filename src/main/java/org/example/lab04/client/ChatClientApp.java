@@ -23,7 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ChatClientApp extends Application {
 
-    // Bộ nhớ đệm lưu đường dẫn tuyệt đối của các file đã gửi (Máy A dùng để đọc file)
     public static final Map<String, String> offeredFiles = new ConcurrentHashMap<>();
 
     private ListView<String> userListView = new ListView<>();
@@ -42,8 +41,10 @@ public class ChatClientApp extends Application {
     private int serverPort = 9999;
 
     private String targetIP = null;
+    private String targetUsername = null;  // Tên user đang được chọn để chat
     private int targetP2PPort = 0;
     private Socket centralServerSocket;
+    private DataOutputStream centralServerDos; // Dùng để gửi LOG về server
 
     public static void main(String[] args) {
         launch(args);
@@ -65,13 +66,13 @@ public class ChatClientApp extends Application {
         new Thread(() -> {
             try {
                 centralServerSocket = new Socket(serverIP, serverPort);
-                DataOutputStream dos = new DataOutputStream(centralServerSocket.getOutputStream());
+                centralServerDos = new DataOutputStream(centralServerSocket.getOutputStream());
                 DataInputStream dis = new DataInputStream(centralServerSocket.getInputStream());
 
-                dos.writeUTF("REGISTER");
-                dos.writeUTF(username);
-                dos.writeInt(myP2PPort);
-                dos.flush();
+                centralServerDos.writeUTF("REGISTER");
+                centralServerDos.writeUTF(username);
+                centralServerDos.writeInt(myP2PPort);
+                centralServerDos.flush();
 
                 while (true) {
                     String header = dis.readUTF();
@@ -233,6 +234,8 @@ public class ChatClientApp extends Application {
                 P2PClient.sendMessage(targetIP, targetP2PPort, username, text);
                 appendMessage("Tôi", text, false);
                 Platform.runLater(() -> txtMessage.clear());
+                // Gửi log lên Central Server
+                sendLogMsg(targetUsername != null ? targetUsername : targetIP, text);
             } catch (IOException e) {
                 Platform.runLater(() -> showAlert("Lỗi P2P", "Không thể gửi tới " + targetIP));
             }
@@ -255,11 +258,39 @@ public class ChatClientApp extends Application {
                 try {
                     P2PClient.sendFileOffer(targetIP, targetP2PPort, username, selectedFile);
                     appendMessage("Tôi", "📁 [Đã gửi thông báo File]: " + selectedFile.getName(), true);
+                    // Gửi log lên Central Server
+                    sendLogFile(targetUsername != null ? targetUsername : targetIP,
+                            selectedFile.getName(), selectedFile.length());
                 } catch (IOException e) {
                     Platform.runLater(() -> showAlert("Lỗi P2P", "Truyền thông báo file thất bại!"));
                 }
             }).start();
         }
+    }
+
+    /** Gửi log tin nhắn lên Central Server để server hiển thị. */
+    private synchronized void sendLogMsg(String toUser, String message) {
+        try {
+            if (centralServerDos != null) {
+                centralServerDos.writeUTF("LOG_MSG");
+                centralServerDos.writeUTF(toUser);
+                centralServerDos.writeUTF(message);
+                centralServerDos.flush();
+            }
+        } catch (IOException ignored) {}
+    }
+
+    /** Gửi log file lên Central Server để server hiển thị. */
+    private synchronized void sendLogFile(String toUser, String fileName, long fileSize) {
+        try {
+            if (centralServerDos != null) {
+                centralServerDos.writeUTF("LOG_FILE");
+                centralServerDos.writeUTF(toUser);
+                centralServerDos.writeUTF(fileName);
+                centralServerDos.writeLong(fileSize);
+                centralServerDos.flush();
+            }
+        } catch (IOException ignored) {}
     }
 
     private void setupUI(Stage primaryStage) {
@@ -272,9 +303,11 @@ public class ChatClientApp extends Application {
 
         userListView.getSelectionModel().selectedItemProperty().addListener((obs, oldVal, newVal) -> {
             if (newVal != null) {
-                String[] parts = newVal.split(" - ")[1].split(":");
-                targetIP = parts[0];
-                targetP2PPort = Integer.parseInt(parts[1]);
+                String[] parts = newVal.split(" - ");
+                targetUsername = parts[0]; // Lưu tên user đang chọn
+                String[] ipPort = parts[1].split(":");
+                targetIP = ipPort[0];
+                targetP2PPort = Integer.parseInt(ipPort[1]);
                 lblStatus.setText("Đang chat trực tiếp với: " + newVal);
             }
         });

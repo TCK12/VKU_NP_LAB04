@@ -57,7 +57,7 @@
                 <version>0.0.8</version>
                 <executions>
                     <execution>
-                        <!-- Default configuration for running with: mvn clean javafx:run -->
+                        <!-- mvn clean javafx:run  → chạy client -->
                         <id>default-cli</id>
                         <configuration>
                             <mainClass>org.example.lab04/org.example.lab04.client.ChatClientApp</mainClass>
@@ -67,6 +67,13 @@
                             <noManPages>true</noManPages>
                             <stripDebug>true</stripDebug>
                             <noHeaderFiles>true</noHeaderFiles>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <!-- mvn javafx:run@server  → chạy server UI -->
+                        <id>server</id>
+                        <configuration>
+                            <mainClass>org.example.lab04/org.example.lab04.server.ServerApp</mainClass>
                         </configuration>
                     </execution>
                 </executions>

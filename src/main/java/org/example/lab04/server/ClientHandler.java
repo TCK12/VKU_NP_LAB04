@@ -11,6 +11,7 @@ public class ClientHandler extends Thread {
     private DataInputStream dis;
     private DataOutputStream dos;
     private String userInfo;
+    private String username;
 
     public ClientHandler(Socket socket) {
         this.socket = socket;
@@ -18,6 +19,10 @@ public class ClientHandler extends Thread {
 
     public String getUserInfo() {
         return userInfo;
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     @Override
@@ -28,7 +33,7 @@ public class ClientHandler extends Thread {
 
             String command = dis.readUTF();
             if ("REGISTER".equals(command)) {
-                String username = dis.readUTF();
+                username = dis.readUTF();
                 int p2pPort = dis.readInt();
                 String clientIP = socket.getInetAddress().getHostAddress();
 
@@ -36,11 +41,35 @@ public class ClientHandler extends Thread {
                 CentralServer.activeClients.add(this);
 
                 System.out.println("[🟢 VỪA ONLINE]: " + userInfo);
+                if (CentralServer.eventListener != null) {
+                    CentralServer.eventListener.onClientConnected(userInfo);
+                }
                 CentralServer.broadcastUserList();
 
-                // Giữ kết nối ngầm để theo dõi trạng thái Online/Offline
+                // Giữ kết nối để nhận log sự kiện P2P từ client
                 while (true) {
-                    dis.readUTF();
+                    String logType = dis.readUTF();
+
+                    if ("LOG_MSG".equals(logType)) {
+                        // Client gửi log: tôi vừa gửi tin nhắn cho toUser
+                        String toUser = dis.readUTF();
+                        String message = dis.readUTF();
+                        System.out.println("[📨 LOG]: " + username + " -> " + toUser + ": " + message);
+                        if (CentralServer.eventListener != null) {
+                            CentralServer.eventListener.onMessageSent(username, toUser, message);
+                        }
+
+                    } else if ("LOG_FILE".equals(logType)) {
+                        // Client gửi log: tôi vừa gửi file cho toUser
+                        String toUser = dis.readUTF();
+                        String fileName = dis.readUTF();
+                        long fileSize = dis.readLong();
+                        System.out.println("[📁 LOG]: " + username + " -> " + toUser + ": " + fileName + " (" + fileSize + " bytes)");
+                        if (CentralServer.eventListener != null) {
+                            CentralServer.eventListener.onFileSent(username, toUser, fileName, fileSize);
+                        }
+                    }
+                    // Bất kỳ command không rõ thì bỏ qua (keepalive cũ)
                 }
             }
         } catch (IOException e) {
@@ -67,6 +96,9 @@ public class ClientHandler extends Thread {
         CentralServer.activeClients.remove(this);
         if (userInfo != null) {
             System.out.println("[🔴 ĐÃ OFFLINE]: " + userInfo);
+            if (CentralServer.eventListener != null) {
+                CentralServer.eventListener.onClientDisconnected(userInfo);
+            }
             CentralServer.broadcastUserList();
         }
         try {
