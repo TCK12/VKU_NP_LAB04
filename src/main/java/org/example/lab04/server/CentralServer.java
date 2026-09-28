@@ -79,6 +79,7 @@ public class CentralServer {
         } catch (IOException ignored) {}
         // Đóng tất cả client
         for (ClientHandler ch : activeClients) {
+            ch.forceDisconnect();
             ch.interrupt();
         }
         activeClients.clear();
