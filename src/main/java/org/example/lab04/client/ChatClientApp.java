@@ -99,7 +99,15 @@ public class ChatClientApp extends Application {
                     }
                 }
             } catch (IOException e) {
-                Platform.runLater(() -> lblStatus.setText("❌ Mất kết nối tới Central Server!"));
+                Platform.runLater(() -> {
+                    lblStatus.setText("❌ Mất kết nối tới Central Server!");
+                    Alert alert = new Alert(Alert.AlertType.ERROR);
+                    alert.setTitle("Lỗi kết nối");
+                    alert.setHeaderText("Server đã đóng hoặc mất kết nối.");
+                    alert.setContentText("Ứng dụng sẽ tự động thoát.");
+                    alert.showAndWait();
+                    System.exit(0); // Kick người dùng ra ngoài
+                });
             }
         }).start();
     }

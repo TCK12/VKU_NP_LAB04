@@ -105,4 +105,10 @@ public class ClientHandler extends Thread {
             if (socket != null && !socket.isClosed()) socket.close();
         } catch (IOException ignored) {}
     }
+
+    public void forceDisconnect() {
+        try {
+            if (socket != null && !socket.isClosed()) socket.close();
+        } catch (IOException ignored) {}
+    }
 }
