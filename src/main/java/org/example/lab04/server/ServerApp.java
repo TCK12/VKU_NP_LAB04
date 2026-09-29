@@ -268,12 +268,47 @@ public class ServerApp extends Application implements IServerEventListener {
             txtPort.setDisable(true);
             lblServerStatus.setText("● Đang chạy – Port " + port);
             lblServerStatus.setTextFill(Color.web("#A6E3A1"));
-            try {
-                String localIP = InetAddress.getLocalHost().getHostAddress();
-                lblServerIP.setText("IP: " + localIP);
-            } catch (Exception ignored) {}
+
+            // Lấy IPv4 của Tailscale
+            String tailscaleIP = getTailscaleIPv4();
+            lblServerIP.setText("IP (Tailscale): " + tailscaleIP);
+
             appendLog("✅ Server đã khởi động thành công trên port " + port, "#A6E3A1");
         });
+    }
+
+    // Hàm bổ trợ để lọc đúng IPv4 của Tailscale
+    private String getTailscaleIPv4() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+
+                // Bỏ qua card bị tắt
+                if (!ni.isUp()) continue;
+
+                String name = ni.getDisplayName().toLowerCase();
+
+                // Kiểm tra tên adapter chứa "tailscale"
+                if (name.contains("tailscale")) {
+                    java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                    while (addresses.hasMoreElements()) {
+                        java.net.InetAddress addr = addresses.nextElement();
+                        // Lấy địa chỉ IPv4
+                        if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress()) {
+                            return addr.getHostAddress();
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // Nếu Tailscale chưa bật hoặc không tìm thấy, lấy tạm IP mặc định
+        try {
+            return java.net.InetAddress.getLocalHost().getHostAddress();
+        } catch (Exception e) {
+            return "127.0.0.1";
+        }
     }
 
     @Override
