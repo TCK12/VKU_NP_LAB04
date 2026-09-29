@@ -269,33 +269,37 @@ public class ServerApp extends Application implements IServerEventListener {
             lblServerStatus.setText("● Đang chạy – Port " + port);
             lblServerStatus.setTextFill(Color.web("#A6E3A1"));
 
-            // Lấy IPv4 của Tailscale
-            String tailscaleIP = getTailscaleIPv4();
-            lblServerIP.setText("IP (Tailscale): " + tailscaleIP);
+            // Lấy IPv4 của card Wi-Fi
+            String wifiIP = getWifiIPv4();
+            lblServerIP.setText("IP (Wi-Fi): " + wifiIP);
 
             appendLog("✅ Server đã khởi động thành công trên port " + port, "#A6E3A1");
         });
     }
 
-    // Hàm bổ trợ để lọc đúng IPv4 của Tailscale
-    private String getTailscaleIPv4() {
+    // Hàm bổ trợ để lọc ra IPv4 của card Wi-Fi
+    private String getWifiIPv4() {
         try {
             java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 java.net.NetworkInterface ni = interfaces.nextElement();
 
-                // Bỏ qua card bị tắt
-                if (!ni.isUp()) continue;
+                // Bỏ qua card mạng bị tắt hoặc là loopback (127.0.0.1)
+                if (!ni.isUp() || ni.isLoopback()) continue;
 
-                String name = ni.getDisplayName().toLowerCase();
+                String displayName = ni.getDisplayName().toLowerCase();
+                String name = ni.getName().toLowerCase();
 
-                // Kiểm tra tên adapter chứa "tailscale"
-                if (name.contains("tailscale")) {
+                // Kiểm tra tên adapter xem có phải Wi-Fi / WLAN hay không
+                boolean isWifi = displayName.contains("wi-fi") || displayName.contains("wireless")
+                        || displayName.contains("wlan") || name.contains("wlan");
+
+                if (isWifi) {
                     java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
                     while (addresses.hasMoreElements()) {
                         java.net.InetAddress addr = addresses.nextElement();
-                        // Lấy địa chỉ IPv4
-                        if (addr instanceof java.net.Inet4Address && !addr.isLoopbackAddress()) {
+                        // Chỉ lấy địa chỉ IPv4
+                        if (addr instanceof java.net.Inet4Address) {
                             return addr.getHostAddress();
                         }
                     }
@@ -303,12 +307,35 @@ public class ServerApp extends Application implements IServerEventListener {
             }
         } catch (Exception ignored) {}
 
-        // Nếu Tailscale chưa bật hoặc không tìm thấy, lấy tạm IP mặc định
+        // Dự phòng: Nếu không phát hiện đúng tên Wi-Fi, lọc bỏ các card ảo (Tailscale, Radmin, VBox) để lấy IP LAN thật
+        return getFallbackLanIP();
+    }
+
+    // Hàm dự phòng lấy IP LAN thật khi không tìm thấy tên "wi-fi" cụ thể
+    private String getFallbackLanIP() {
         try {
-            return java.net.InetAddress.getLocalHost().getHostAddress();
-        } catch (Exception e) {
-            return "127.0.0.1";
-        }
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
+
+                String name = ni.getDisplayName().toLowerCase();
+                // Bỏ qua các card mạng ảo
+                if (name.contains("tailscale") || name.contains("radmin") || name.contains("vbox") || name.contains("vmware")) {
+                    continue;
+                }
+
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address) {
+                        return addr.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return "127.0.0.1";
     }
 
     @Override
