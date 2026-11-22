@@ -6,4 +6,8 @@ public interface INetworkCallback {
     void onFileDownloadProgress(String fileName, long downloaded, long total, double speedKBps, int etaSeconds);
     void onFileSaved(String fileName, String path);
     void onError(String errorMessage);
+
+    default void onImageReceived(String sender, String fileName, byte[] imageBytes) {}
+    default void onVoiceReceived(String sender, int durationSec, byte[] voiceBytes) {}
+    default void onVideoReceived(String sender, String fileName, byte[] videoBytes) {}
 }

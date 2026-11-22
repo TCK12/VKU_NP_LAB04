@@ -34,6 +34,75 @@ public class P2PListener extends Thread {
                 String text = dis.readUTF();
                 callback.onMessageReceived(sender, text);
 
+            } else if ("IMG".equals(type)) {
+                String sender = dis.readUTF();
+                String fileName = dis.readUTF();
+                long fileSize = dis.readLong();
+
+                File dir = new File("downloads" + File.separator + "images");
+                if (!dir.exists()) dir.mkdirs();
+                File saveFile = new File(dir, fileName);
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                long total = 0;
+                int read;
+
+                try (FileOutputStream fos = new FileOutputStream(saveFile)) {
+                    while (total < fileSize && (read = dis.read(buffer, 0, (int) Math.min(buffer.length, fileSize - total))) > 0) {
+                        fos.write(buffer, 0, read);
+                        baos.write(buffer, 0, read);
+                        total += read;
+                    }
+                }
+                callback.onImageReceived(sender, saveFile.getAbsolutePath(), baos.toByteArray());
+
+            } else if ("VOICE".equals(type)) {
+                String sender = dis.readUTF();
+                int durationSec = dis.readInt();
+                long fileSize = dis.readLong();
+
+                File dir = new File("downloads" + File.separator + "voice");
+                if (!dir.exists()) dir.mkdirs();
+                File saveFile = new File(dir, "voice_" + System.currentTimeMillis() + ".wav");
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                long total = 0;
+                int read;
+
+                try (FileOutputStream fos = new FileOutputStream(saveFile)) {
+                    while (total < fileSize && (read = dis.read(buffer, 0, (int) Math.min(buffer.length, fileSize - total))) > 0) {
+                        fos.write(buffer, 0, read);
+                        baos.write(buffer, 0, read);
+                        total += read;
+                    }
+                }
+                callback.onVoiceReceived(sender, durationSec, baos.toByteArray());
+
+            } else if ("VIDEO".equals(type)) {
+                String sender = dis.readUTF();
+                String fileName = dis.readUTF();
+                long fileSize = dis.readLong();
+
+                File dir = new File("downloads" + File.separator + "video");
+                if (!dir.exists()) dir.mkdirs();
+                File saveFile = new File(dir, fileName);
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                long total = 0;
+                int read;
+
+                try (FileOutputStream fos = new FileOutputStream(saveFile)) {
+                    while (total < fileSize && (read = dis.read(buffer, 0, (int) Math.min(buffer.length, fileSize - total))) > 0) {
+                        fos.write(buffer, 0, read);
+                        baos.write(buffer, 0, read);
+                        total += read;
+                    }
+                }
+                callback.onVideoReceived(sender, saveFile.getAbsolutePath(), baos.toByteArray());
+
             } else if ("FILE_OFFER".equals(type)) {
                 String sender = dis.readUTF();
                 String fileName = dis.readUTF();
@@ -42,17 +111,13 @@ public class P2PListener extends Thread {
 
             } else if ("DOWNLOAD_REQ".equals(type)) {
                 String fileName = dis.readUTF();
-                System.out.println("[P2PListener] Nhận yêu cầu tải file: " + fileName);
-
                 String filePath = org.example.lab04.client.ChatClientApp.offeredFiles.get(fileName);
                 File file = null;
 
                 if (filePath != null) {
                     file = new File(filePath);
-                    System.out.println("[P2PListener] Đã tìm thấy đường dẫn gốc trong cache: " + filePath);
                 } else {
-                    System.out.println("[P2PListener] Không có trong cache, tìm ở thư mục mặc định...");
-                    file = new File("C:\\downloads", fileName);
+                    file = new File("downloads", fileName);
                     if (!file.exists()) {
                         file = new File(fileName);
                     }
@@ -60,7 +125,6 @@ public class P2PListener extends Thread {
 
                 try (DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
                     if (file != null && file.exists() && file.isFile()) {
-                        System.out.println("[P2PListener] File hợp lệ. Bắt đầu truyền dữ liệu...");
                         dos.writeUTF("FILE_DATA");
                         dos.writeUTF(file.getName());
                         dos.writeLong(file.length());
@@ -72,7 +136,6 @@ public class P2PListener extends Thread {
                             }
                         }
                     } else {
-                        System.out.println("[P2PListener] Báo lỗi FILE_ERROR do không tìm thấy file.");
                         dos.writeUTF("FILE_ERROR");
                         dos.writeUTF("Không tìm thấy file: " + fileName);
                     }
@@ -82,8 +145,7 @@ public class P2PListener extends Thread {
                 String fileName = dis.readUTF();
                 long fileSize = dis.readLong();
 
-                // Cập nhật thư mục tải vào ổ C
-                File dir = new File("C:\\downloads");
+                File dir = new File("downloads");
                 if (!dir.exists()) dir.mkdirs();
                 File saveFile = new File(dir, fileName);
 
