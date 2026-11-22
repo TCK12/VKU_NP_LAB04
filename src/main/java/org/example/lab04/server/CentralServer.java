@@ -43,9 +43,15 @@ public class CentralServer {
         serverSocket = new ServerSocket(port);
         running = true;
 
+        // Khởi tạo kết nối MongoDB
+        org.example.lab04.service.MongoDbService.init();
+
         Thread serverThread = new Thread(() -> {
             if (eventListener != null) eventListener.onServerStarted(port);
             System.out.println("=== SERVER KHỞI ĐỘNG TRÊN PORT " + port + " ===");
+            if (eventListener != null) {
+                eventListener.onLog("📦 MongoDB: " + org.example.lab04.service.MongoDbService.getConnectionStatusMessage());
+            }
             try {
                 while (running && !serverSocket.isClosed()) {
                     Socket socket = serverSocket.accept();

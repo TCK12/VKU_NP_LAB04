@@ -13,14 +13,13 @@ import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
 
 import java.io.IOException;
-import java.net.InetAddress;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
  * Giao diện JavaFX cho Central Directory Server.
- * Hiển thị: trạng thái server, danh sách user online, nhật ký hoạt động.
+ * Hiển thị: trạng thái server, danh sách user online kèm vị trí địa lý, nhật ký hoạt động.
  */
 public class ServerApp extends Application implements IServerEventListener {
 
@@ -53,7 +52,7 @@ public class ServerApp extends Application implements IServerEventListener {
     public void start(Stage primaryStage) {
         CentralServer.eventListener = this;
 
-        primaryStage.setTitle("🖥  Central Server – Bảng Điều Khiển");
+        primaryStage.setTitle("🖥  Central Server – Bảng Điều Khiển Hệ Thống");
         primaryStage.setMinWidth(950);
         primaryStage.setMinHeight(600);
 
@@ -123,6 +122,10 @@ public class ServerApp extends Application implements IServerEventListener {
         lblServerIP.setFont(Font.font("SansSerif", 12));
         lblServerIP.setTextFill(Color.web("#A6ADC8"));
 
+        Label lblMongo = new Label("📦 DB: MongoDB");
+        lblMongo.setFont(Font.font("SansSerif", 11));
+        lblMongo.setStyle("-fx-background-color: #24273A; -fx-padding: 3 8 3 8; -fx-background-radius: 6; -fx-text-fill: #A6E3A1;");
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
@@ -131,7 +134,7 @@ public class ServerApp extends Application implements IServerEventListener {
                 lblPortLabel, txtPort,
                 btnStart, btnStop,
                 new Separator(javafx.geometry.Orientation.VERTICAL),
-                lblServerStatus, lblServerIP,
+                lblServerStatus, lblServerIP, lblMongo,
                 spacer
         );
         return toolbar;
@@ -139,7 +142,7 @@ public class ServerApp extends Application implements IServerEventListener {
 
     private VBox buildUserPanel() {
         VBox panel = new VBox(10);
-        panel.setPrefWidth(260);
+        panel.setPrefWidth(280);
         panel.setPadding(new Insets(14, 10, 14, 14));
         panel.setStyle("-fx-background-color: #181825; -fx-border-color: #3A3A5C; -fx-border-width: 0 2 0 0;");
 
@@ -156,7 +159,7 @@ public class ServerApp extends Application implements IServerEventListener {
                 + "-fx-background-radius: 8;");
         VBox.setVgrow(userListView, Priority.ALWAYS);
 
-        // Custom cell để hiển thị đẹp hơn
+        // Custom cell hiển thị username + vị trí địa lý + IP nội bộ
         userListView.setCellFactory(lv -> new ListCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -166,26 +169,75 @@ public class ServerApp extends Application implements IServerEventListener {
                     setGraphic(null);
                     setStyle("-fx-background-color: transparent;");
                 } else {
-                    // Phân tích "username - IP:port"
-                    String display = item;
                     String[] parts = item.split(" - ");
-                    if (parts.length >= 2) {
-                        display = "👤 " + parts[0] + "\n    🌐 " + parts[1];
+                    String name = parts[0];
+                    String ipPort = parts.length > 1 ? parts[1] : "";
+                    String location = parts.length > 2 ? parts[2] : "📍 Unknown location";
+                    String roleStr = parts.length > 3 ? parts[3] : "USER";
+                    org.example.lab04.model.UserRole role = org.example.lab04.model.UserRole.fromString(roleStr);
+
+                    String display = role.getDisplayName() + " " + name + "  [" + location + "]";
+                    if (!ipPort.isEmpty()) {
+                        display += "\n    🌐 " + ipPort;
                     }
                     setText(display);
                     setStyle("-fx-background-color: #252535; -fx-text-fill: #CDD6F4; "
-                            + "-fx-font-size: 12px; -fx-padding: 8px;");
+                            + "-fx-font-size: 12px; -fx-padding: 8px; -fx-background-radius: 6;");
                 }
             }
         });
 
-        // Thống kê nhanh
-        Label lblStatTitle = new Label("📊 Thống kê phiên");
+        // Khu vực Quản trị / Phân quyền
+        Label lblStatTitle = new Label("👑 Quản Trị & Phân Quyền");
         lblStatTitle.setFont(Font.font("SansSerif", FontWeight.BOLD, 12));
         lblStatTitle.setTextFill(Color.web("#89DCEB"));
-        lblStatTitle.setPadding(new Insets(8, 0, 0, 0));
+        lblStatTitle.setPadding(new Insets(6, 0, 0, 0));
 
-        panel.getChildren().addAll(lblOnlineCount, userListView, lblStatTitle);
+        ComboBox<String> cbRoleSelect = new ComboBox<>();
+        cbRoleSelect.getItems().addAll("👑 ADMIN", "🛡️ MOD", "👤 USER");
+        cbRoleSelect.setValue("👑 ADMIN");
+        cbRoleSelect.setMaxWidth(Double.MAX_VALUE);
+        cbRoleSelect.setStyle("-fx-background-color: #2A2A3E; -fx-text-fill: #CDD6F4;");
+
+        HBox adminActions = new HBox(8);
+        Button btnSetRole = new Button("Gán Quyền");
+        btnSetRole.setStyle(buttonStyle("#89B4FA", "#1E1E2E"));
+        btnSetRole.setOnAction(e -> {
+            String selected = userListView.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                String target = selected.split(" - ")[0];
+                org.example.lab04.model.UserRole newRole = org.example.lab04.model.UserRole.fromString(cbRoleSelect.getValue());
+                org.example.lab04.service.MongoDbService.updateUserRole(target, newRole);
+                for (ClientHandler ch : CentralServer.activeClients) {
+                    if (ch.getUsername() != null && ch.getUsername().equalsIgnoreCase(target)) {
+                        ch.setUserRole(newRole);
+                        break;
+                    }
+                }
+                CentralServer.broadcastUserList();
+                appendLog("👑 [PHÂN QUYỀN] Đã gán quyền " + newRole.name() + " cho " + target, "#CBA6F7");
+            }
+        });
+
+        Button btnKick = new Button("⛔ Kick");
+        btnKick.setStyle(buttonStyle("#F38BA8", "#1E1E2E"));
+        btnKick.setOnAction(e -> {
+            String selected = userListView.getSelectionModel().getSelectedItem();
+            if (selected != null) {
+                String target = selected.split(" - ")[0];
+                for (ClientHandler ch : CentralServer.activeClients) {
+                    if (ch.getUsername() != null && ch.getUsername().equalsIgnoreCase(target)) {
+                        ch.forceDisconnect();
+                        appendLog("⛔ [KICK] Đã kick user: " + target, "#F38BA8");
+                        break;
+                    }
+                }
+            }
+        });
+
+        adminActions.getChildren().addAll(btnSetRole, btnKick);
+
+        panel.getChildren().addAll(lblOnlineCount, userListView, lblStatTitle, cbRoleSelect, adminActions);
         return panel;
     }
 
@@ -197,7 +249,7 @@ public class ServerApp extends Application implements IServerEventListener {
         // Header
         HBox header = new HBox(10);
         header.setAlignment(Pos.CENTER_LEFT);
-        Label lblLogTitle = new Label("📋 Nhật Ký Hoạt Động");
+        Label lblLogTitle = new Label("📋 Nhật Ký Hoạt Động & Sự Kiện");
         lblLogTitle.setFont(Font.font("SansSerif", FontWeight.BOLD, 15));
         lblLogTitle.setTextFill(Color.web("#CBA6F7"));
 
@@ -244,7 +296,6 @@ public class ServerApp extends Application implements IServerEventListener {
 
         try {
             CentralServer.startAsync(port);
-            // UI cập nhật sẽ được gọi qua onServerStarted callback
         } catch (IOException ex) {
             appendLog("❌ Không thể khởi động server: " + ex.getMessage(), "#F38BA8");
             showAlert("Lỗi khởi động", ex.getMessage());
@@ -253,7 +304,6 @@ public class ServerApp extends Application implements IServerEventListener {
 
     private void stopServer() {
         CentralServer.stop();
-        // onServerStopped sẽ được gọi
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -269,7 +319,6 @@ public class ServerApp extends Application implements IServerEventListener {
             lblServerStatus.setText("● Đang chạy – Port " + port);
             lblServerStatus.setTextFill(Color.web("#A6E3A1"));
 
-            // Lấy IPv4 của card Wi-Fi
             String wifiIP = getWifiIPv4();
             lblServerIP.setText("IP (Wi-Fi): " + wifiIP);
 
@@ -277,20 +326,16 @@ public class ServerApp extends Application implements IServerEventListener {
         });
     }
 
-    // Hàm bổ trợ để lọc ra IPv4 của card Wi-Fi
     private String getWifiIPv4() {
         try {
             java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 java.net.NetworkInterface ni = interfaces.nextElement();
-
-                // Bỏ qua card mạng bị tắt hoặc là loopback (127.0.0.1)
                 if (!ni.isUp() || ni.isLoopback()) continue;
 
                 String displayName = ni.getDisplayName().toLowerCase();
                 String name = ni.getName().toLowerCase();
 
-                // Kiểm tra tên adapter xem có phải Wi-Fi / WLAN hay không
                 boolean isWifi = displayName.contains("wi-fi") || displayName.contains("wireless")
                         || displayName.contains("wlan") || name.contains("wlan");
 
@@ -298,7 +343,6 @@ public class ServerApp extends Application implements IServerEventListener {
                     java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
                     while (addresses.hasMoreElements()) {
                         java.net.InetAddress addr = addresses.nextElement();
-                        // Chỉ lấy địa chỉ IPv4
                         if (addr instanceof java.net.Inet4Address) {
                             return addr.getHostAddress();
                         }
@@ -307,11 +351,9 @@ public class ServerApp extends Application implements IServerEventListener {
             }
         } catch (Exception ignored) {}
 
-        // Dự phòng: Nếu không phát hiện đúng tên Wi-Fi, lọc bỏ các card ảo (Tailscale, Radmin, VBox) để lấy IP LAN thật
         return getFallbackLanIP();
     }
 
-    // Hàm dự phòng lấy IP LAN thật khi không tìm thấy tên "wi-fi" cụ thể
     private String getFallbackLanIP() {
         try {
             java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
@@ -320,7 +362,6 @@ public class ServerApp extends Application implements IServerEventListener {
                 if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
 
                 String name = ni.getDisplayName().toLowerCase();
-                // Bỏ qua các card mạng ảo
                 if (name.contains("tailscale") || name.contains("radmin") || name.contains("vbox") || name.contains("vmware")) {
                     continue;
                 }
@@ -356,10 +397,15 @@ public class ServerApp extends Application implements IServerEventListener {
     @Override
     public void onClientConnected(String userInfo) {
         Platform.runLater(() -> {
-            // userInfo dạng: "username - IP:port"
-            String username = userInfo.split(" - ")[0];
+            // userInfo dạng: "username - IP:port - location"
+            String[] parts = userInfo.split(" - ");
+            String username = parts[0];
+            String ipPort = parts.length > 1 ? parts[1] : "";
+            String location = parts.length > 2 ? parts[2] : "📍 Unknown location";
+
             appendLog("🟢 [KẾT NỐI]  " + username + "  đã đăng nhập\n"
-                    + "              📍 Địa chỉ: " + userInfo.split(" - ")[1], "#A6E3A1");
+                    + "              📍 Vị trí: " + location + "\n"
+                    + "              🌐 Địa chỉ IP: " + ipPort, "#A6E3A1");
         });
     }
 
